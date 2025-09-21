@@ -1,0 +1,5 @@
+{
+  "name": "AI Meal and recipie planner",
+  "description": "An application that generates personalized meal plans for breakfast, lunch, and dinner based on a user's uploaded pantry/equipment list and their selected dietary preferences.",
+  "requestFramePermissions": []
+}
