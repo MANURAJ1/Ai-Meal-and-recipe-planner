@@ -7,6 +7,9 @@ import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
 
+// For using the SheetJS library loaded from a CDN
+declare const XLSX: any;
+
 interface Meal {
   mealType: string;
   recipeName: string;
@@ -50,16 +53,44 @@ const App = () => {
 
   const atLeastOneMealSelected = Object.values(selectedMeals).some(v => v);
 
-  const fileToText = (file: File): Promise<string> => {
+  const processFile = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsText(file);
-      reader.onload = () => {
-        resolve(reader.result as string);
-      };
-      reader.onerror = (error) => reject(error);
+        const reader = new FileReader();
+        const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+        if (['xls', 'xlsx'].includes(fileExtension!)) {
+            reader.readAsArrayBuffer(file);
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target!.result as ArrayBuffer);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    let fullText = '';
+                    workbook.SheetNames.forEach((sheetName: string) => {
+                        fullText += `--- Content from sheet: ${sheetName} ---\n\n`;
+                        const worksheet = workbook.Sheets[sheetName];
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                        
+                        // Convert array of arrays to a simple text representation
+                        jsonData.forEach((row: any[]) => {
+                            fullText += row.join(', ') + '\n';
+                        });
+                        fullText += '\n';
+                    });
+                    resolve(fullText.trim());
+                } catch (error) {
+                    console.error("Error parsing Excel file:", error);
+                    reject("Could not parse the Excel file.");
+                }
+            };
+        } else { // Handle text-based files
+            reader.readAsText(file);
+            reader.onload = () => {
+                resolve(reader.result as string);
+            };
+        }
+        reader.onerror = (error) => reject(error);
     });
-  };
+};
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -74,7 +105,7 @@ const App = () => {
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const fileContent = await fileToText(file);
+      const fileContent = await processFile(file);
       const selectedMealNames = Object.keys(selectedMeals).filter(meal => selectedMeals[meal]).join(', ');
 
       let pantryInstruction = "Strictly use only the ingredients from the pantry list provided.";
@@ -86,7 +117,7 @@ const App = () => {
         I am a ${userType}. I am planning meals for ${numPeople} person(s).
         My diet preference is ${diet}.
         Please suggest recipes for the following meals: ${selectedMealNames}.
-        The pantry and equipment list is as follows:
+        The pantry and equipment list (potentially from multiple sheets in a file) is as follows:
         ${fileContent}
         
         ${pantryInstruction}
@@ -150,9 +181,9 @@ const App = () => {
 
         <div className="input-group">
           <label htmlFor="file-upload">1. Upload Pantry & Equipment List</label>
-          <p className="input-hint">Supported formats: .txt, .csv, .md, .json</p>
+          <p className="input-hint">Supported formats: .txt, .csv, .md, .json, .xls, .xlsx</p>
           <div className="file-input-wrapper">
-            <input type="file" id="file-upload" onChange={handleFileChange} accept=".txt,.csv,.md,.json" aria-describedby="file-name" />
+            <input type="file" id="file-upload" onChange={handleFileChange} accept=".txt,.csv,.md,.json,.xls,.xlsx" aria-describedby="file-name" />
             <label htmlFor="file-upload" className="file-input-label">{file ? 'Change file' : 'Choose a file'}</label>
           </div>
           {file && <span id="file-name" className="file-name-display">{file.name}</span>}
